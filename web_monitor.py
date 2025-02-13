@@ -117,20 +117,34 @@ async def read_root():
     return {"message": "FastAPI is running!"}
 
 @app.get("/start-monitoring")
-async def start_monitoring(background_tasks: BackgroundTasks):
-    """Starts the monitoring in the background."""
+async def start_monitoring():
+    """Starts website monitoring in the background."""
     logging.info("🚀 Starting Website Monitoring...")
-    background_tasks.add_task(monitor_websites)  # Ensure this runs
+
+    # Proper async background execution
+    asyncio.create_task(monitor_websites())
+
     return {"message": "Monitoring started and will run for 10 cycles."}
 
 
+
 def save_scraped_data(url, content):
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO website_snapshots (url, scraped_content) VALUES (%s, %s);",
-        (url, content)
-    )
-    conn.commit()
-    conn.close()
+    """Saves scraped data into the database."""
+    try:
+        logging.info(f"💾 Attempting to save data for {url}")
+
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO website_snapshots (url, scraped_content) VALUES (%s, %s);",
+            (url, content),
+        )
+        conn.commit()
+        conn.close()
+
+        logging.info(f"✅ Data successfully saved for {url}")
+
+    except psycopg2.Error as db_err:
+        logging.error(f"❌ Database insert failed for {url}: {db_err}", exc_info=True)
+
 
