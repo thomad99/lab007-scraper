@@ -98,3 +98,16 @@ async def start_monitoring(background_tasks: BackgroundTasks):
     """Starts the monitoring in the background."""
     background_tasks.add_task(monitor_websites)
     return {"message": "Monitoring started and will run for 10 cycles."}
+
+
+
+def save_scraped_data(url, content):
+    conn = psycopg2.connect(**DB_CONFIG)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO website_snapshots (url, scraped_content) VALUES (%s, %s);",
+        (url, content)
+    )
+    conn.commit()
+    conn.close()
+
