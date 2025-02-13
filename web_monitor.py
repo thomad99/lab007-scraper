@@ -119,9 +119,9 @@ async def read_root():
 @app.get("/start-monitoring")
 async def start_monitoring(background_tasks: BackgroundTasks):
     """Starts the monitoring in the background."""
-    background_tasks.add_task(monitor_websites)
+    logging.info("🚀 Starting Website Monitoring...")
+    background_tasks.add_task(monitor_websites)  # Ensure this runs
     return {"message": "Monitoring started and will run for 10 cycles."}
-
 
 
 def save_scraped_data(url, content):
