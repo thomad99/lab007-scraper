@@ -1,3 +1,16 @@
+import logging
+
+# Configure logging to show messages in Render logs
+logging.basicConfig(
+    level=logging.INFO,  # Change to DEBUG for more details
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+# Replace all `print()` statements with `logging.info()`
+logging.info("🔧 Debugging Enabled: Logging is now active")
+
+
+
 from fastapi import FastAPI, BackgroundTasks
 import asyncio
 import psycopg2
@@ -35,20 +48,21 @@ async def get_websites_from_db():
 
 async def scrape_website(url):
     """Scrapes the website and extracts text content."""
-    print(f"🌍 Scraping: {url}...")  # Debug log
+    logging.info(f"🌍 Scraping: {url}...")  # Debug log
     try:
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
             scraped_content = soup.get_text()
-            print(f"✅ Successfully scraped {url} ({len(scraped_content)} characters)")
+            logging.info(f"✅ Successfully scraped {url} ({len(scraped_content)} characters)")
             return scraped_content
         else:
-            print(f"❌ Failed to scrape {url} - Status Code: {response.status_code}")
+            logging.warning(f"❌ Failed to scrape {url} - Status Code: {response.status_code}")
             return None
     except Exception as e:
-        print(f"⚠️ Error scraping {url}: {e}")
+        logging.error(f"⚠️ Error scraping {url}: {e}")
         return None
+
 
 
 async def send_email_alert(to_email, url):
