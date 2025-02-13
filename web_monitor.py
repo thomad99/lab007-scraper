@@ -80,6 +80,9 @@ async def monitor_websites():
             new_content = await scrape_website(url)
 
             if new_content:
+                # ✅ Save scraped data to database
+                save_scraped_data(url, new_content)  # NEW LINE
+
                 if url in website_data:
                     old_content = website_data[url]
                     if old_content.strip() != new_content.strip():
