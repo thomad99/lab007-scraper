@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+requests
+beautifulsoup4
+psycopg2
+aiosmtplib
