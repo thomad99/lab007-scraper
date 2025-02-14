@@ -81,6 +81,27 @@ async def get_websites_from_db():
         logger.exception("Full traceback:")
         return []
 
+@app.get("/websites")
+async def list_websites():
+    """List all websites being monitored."""
+    try:
+        websites = await get_websites_from_db()
+        return JSONResponse({
+            "status": "success",
+            "count": len(websites),
+            "websites": [
+                {
+                    "url": url,
+                    "email": email,
+                    "phone": phone
+                }
+                for url, email, phone in websites
+            ]
+        })
+    except Exception as e:
+        logger.error(f"Failed to list websites: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ... rest of your code ...
 
 if __name__ == "__main__":
