@@ -1,17 +1,6 @@
 import logging
-
-# Configure logging to show messages in Render logs
-logging.basicConfig(
-    level=logging.INFO,  # Change to DEBUG for more details
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
-
-# Replace all `print()` statements with `logging.info()`
-logging.info("🔧 Debugging Enabled: Logging is now active")
-
-
-
-from fastapi import FastAPI, BackgroundTasks
+import os
+from fastapi import FastAPI, HTTPException
 import asyncio
 import psycopg2
 import requests
@@ -19,11 +8,37 @@ import smtplib
 from bs4 import BeautifulSoup
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from datetime import datetime
+from typing import Optional
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI()
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
-import os
+# Initialize FastAPI with explicit port binding
+port = int(os.getenv("PORT", 10000))  # Render will provide PORT env variable
+app = FastAPI(title="Website Monitor")
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with your actual domains
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Add a health check endpoint
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "port": port}
+
+# Database configuration
 DB_CONFIG = {
     "dbname": os.getenv("DB_NAME"),
     "user": os.getenv("DB_USER"),
@@ -32,117 +47,233 @@ DB_CONFIG = {
     "port": os.getenv("DB_PORT")
 }
 
-EMAIL_SENDER = "dave@LoveSailing.ai"
-EMAIL_PASSWORD = "Bugvan98!Crocket3"
-SMTP_SERVER = "smtp.ionos.com"
-SMTP_PORT = 587
+# Email configuration
+EMAIL_SENDER = os.getenv("EMAIL_SENDER", "dave@LoveSailing.ai")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.ionos.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+
+# Add these global variables to track monitoring status
+monitoring_status = {
+    "is_running": False,
+    "started_at": None,
+    "current_cycle": 0,
+    "last_check": None
+}
 
 async def get_websites_from_db():
-    """Fetch URL, email, and phone from the database."""
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor()
-    cur.execute("SELECT url, email, phone FROM websites;")
-    records = cur.fetchall()
-    conn.close()
-    return records
+    """Fetch websites to monitor from database."""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        cur.execute("SELECT url, email, phone FROM websites;")
+        records = cur.fetchall()
+        cur.close()
+        conn.close()
+        logger.info(f"📋 Found {len(records)} websites to monitor")
+        return records
+    except Exception as e:
+        logger.error(f"❌ Database error fetching websites: {e}")
+        return []
 
 async def scrape_website(url):
-    """Scrapes the website and extracts text content."""
-    logging.info(f"🌍 Scraping: {url}...")  # Debug log
+    """Scrape website content."""
     try:
+        logger.info(f"🌍 Scraping {url}")
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
-            scraped_content = soup.get_text()
-            logging.info(f"✅ Successfully scraped {url} ({len(scraped_content)} characters)")
-            return scraped_content
+            content = soup.get_text()
+            logger.info(f"✅ Successfully scraped {url} ({len(content)} chars)")
+            return content
         else:
-            logging.warning(f"❌ Failed to scrape {url} - Status Code: {response.status_code}")
+            logger.error(f"❌ Failed to scrape {url}: Status {response.status_code}")
             return None
     except Exception as e:
-        logging.error(f"⚠️ Error scraping {url}: {e}")
+        logger.error(f"❌ Error scraping {url}: {e}")
         return None
 
-
-
-async def send_email_alert(to_email, url):
-    """Sends an email when a website change is detected."""
+def save_scrape_to_db(url, content):
+    """Save scraped content to database with timestamp."""
     try:
-        msg = MIMEMultipart()
-        msg["From"] = EMAIL_SENDER
-        msg["To"] = to_email
-        msg["Subject"] = f"Website Change Alert: {url}"
-        msg.attach(MIMEText(f"The content of {url} has changed!", "plain"))
-
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.sendmail(EMAIL_SENDER, to_email, msg.as_string())
-        server.quit()
-
-        print(f"📧 Email Alert Sent to {to_email} for {url}")
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        timestamp = datetime.now()
+        cur.execute(
+            "INSERT INTO website_snapshots (url, content, scraped_at) VALUES (%s, %s, %s)",
+            (url, content, timestamp)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        logger.info(f"💾 Saved snapshot for {url}")
+        return True
     except Exception as e:
-        print(f"❌ Email Error: {e}")
+        logger.error(f"❌ Failed to save snapshot for {url}: {e}")
+        return False
 
-async def monitor_websites():
-    """Runs the website monitoring loop for 10 cycles."""
-    websites = await get_websites_from_db()
-    website_data = {}
-
-    for _ in range(10):  # Run 10 iterations
-        for url, email, phone in websites:
-            new_content = await scrape_website(url)
-
-            if new_content:
-                # ✅ Save scraped data to database
-                save_scraped_data(url, new_content)  # NEW LINE
-
-                if url in website_data:
-                    old_content = website_data[url]
-                    if old_content.strip() != new_content.strip():
-                        print(f"🔄 Change detected at {url}")
-                        await send_email_alert(email, url)
-                else:
-                    print(f"✅ First scan of {url}")
-
-                website_data[url] = new_content
-
-        print("⏳ Waiting 1 minute before next scan...")
-        await asyncio.sleep(60)  # Async wait for 1 minute
-
-    print("✅ Monitoring completed after 10 cycles.")
-
-@app.get("/")
-async def read_root():
-    return {"message": "FastAPI is running!"}
-
-@app.get("/start-monitoring")
-async def start_monitoring():
-    """Starts website monitoring in the background."""
-    logging.info("🚀 Starting Website Monitoring...")
-
-    # Proper async background execution
-    asyncio.create_task(monitor_websites())
-
-    return {"message": "Monitoring started and will run for 10 cycles."}
-
-
-
-def save_scraped_data(url, content):
-    """Saves scraped data into the database."""
+def get_last_snapshot(url):
+    """Get the most recent snapshot for a URL."""
     try:
-        logging.info(f"💾 Attempting to save data for {url}")
-
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO website_snapshots (url, scraped_content) VALUES (%s, %s);",
-            (url, content),
+            "SELECT content FROM website_snapshots WHERE url = %s ORDER BY scraped_at DESC LIMIT 1",
+            (url,)
         )
-        conn.commit()
+        result = cur.fetchone()
+        cur.close()
         conn.close()
+        return result[0] if result else None
+    except Exception as e:
+        logger.error(f"❌ Failed to get last snapshot for {url}: {e}")
+        return None
 
-        logging.info(f"✅ Data successfully saved for {url}")
+async def send_change_alert(email, url, phone=None):
+    """Send email alert when change is detected."""
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = EMAIL_SENDER
+        msg["To"] = email
+        msg["Subject"] = f"🔔 Website Change Detected: {url}"
+        
+        body = f"""
+A change has been detected on the website: {url}
 
-    except psycopg2.Error as db_err:
-        logging.error(f"❌ Database insert failed for {url}: {db_err}", exc_info=True)
+Time of detection: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+You can view the website at: {url}
+
+This is an automated alert from your website monitoring service.
+        """
+        
+        msg.attach(MIMEText(body, "plain"))
+        
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        server.sendmail(EMAIL_SENDER, email, msg.as_string())
+        server.quit()
+        
+        logger.info(f"📧 Change alert sent to {email} for {url}")
+    except Exception as e:
+        logger.error(f"❌ Failed to send alert email: {e}")
+
+async def monitor_websites():
+    """Main monitoring loop."""
+    try:
+        monitoring_status["is_running"] = True
+        monitoring_status["started_at"] = datetime.now()
+        monitoring_status["current_cycle"] = 0
+
+        cycle = 0
+        while cycle < 10:
+            cycle += 1
+            monitoring_status["current_cycle"] = cycle
+            logger.info(f"🔄 Starting monitoring cycle {cycle}/10")
+            
+            websites = await get_websites_from_db()
+            if not websites:
+                logger.warning("⚠️ No websites found to monitor")
+                break
+            
+            for url, email, phone in websites:
+                if not monitoring_status["is_running"]:
+                    logger.info("🛑 Monitoring stopped by user")
+                    return
+
+                logger.info(f"📊 Checking {url}")
+                monitoring_status["last_check"] = datetime.now()
+                
+                current_content = await scrape_website(url)
+                if not current_content:
+                    continue
+                    
+                save_scrape_to_db(url, current_content)
+                previous_content = get_last_snapshot(url)
+                
+                if previous_content and previous_content.strip() != current_content.strip():
+                    logger.info(f"🔔 Change detected on {url}")
+                    await send_change_alert(email, url, phone)
+                
+                logger.info(f"⏳ Waiting 60 seconds before next check...")
+                await asyncio.sleep(60)
+            
+            logger.info(f"✅ Completed cycle {cycle}/10")
+        
+        logger.info("🏁 Monitoring completed after 10 cycles")
+    finally:
+        monitoring_status["is_running"] = False
+
+@app.get("/")
+async def root():
+    return {
+        "status": "online",
+        "endpoints": {
+            "start": "/start - Start monitoring",
+            "stop": "/stop - Stop monitoring",
+            "status": "/status - Check monitoring status"
+        },
+        "version": "1.0"
+    }
+
+@app.get("/start", response_class=JSONResponse)
+async def start_monitoring():
+    """Start the monitoring process."""
+    try:
+        if monitoring_status["is_running"]:
+            return JSONResponse({
+                "message": "Monitoring is already running",
+                "started_at": monitoring_status["started_at"].isoformat() if monitoring_status["started_at"] else None,
+                "current_cycle": monitoring_status["current_cycle"]
+            })
+        
+        logger.info("🚀 Starting website monitoring")
+        asyncio.create_task(monitor_websites())
+        return JSONResponse({
+            "message": "Monitoring started for 10 cycles",
+            "status": "success"
+        })
+    except Exception as e:
+        logger.error(f"Failed to start monitoring: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/stop", response_class=JSONResponse)
+async def stop_monitoring():
+    """Stop the monitoring process."""
+    try:
+        if not monitoring_status["is_running"]:
+            return JSONResponse({"message": "Monitoring is not running"})
+        
+        monitoring_status["is_running"] = False
+        return JSONResponse({
+            "message": "Stopping monitoring process",
+            "status": "success"
+        })
+    except Exception as e:
+        logger.error(f"Failed to stop monitoring: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/status", response_class=JSONResponse)
+async def get_monitoring_status():
+    """Get current monitoring status."""
+    try:
+        return JSONResponse({
+            "is_running": monitoring_status["is_running"],
+            "started_at": monitoring_status["started_at"].isoformat() if monitoring_status["started_at"] else None,
+            "current_cycle": monitoring_status["current_cycle"],
+            "last_check": monitoring_status["last_check"].isoformat() if monitoring_status["last_check"] else None
+        })
+    except Exception as e:
+        logger.error(f"Failed to get status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    print(f"Starting server on port {port}")
+    uvicorn.run(
+        "import_logging:app",  # use string reference to app
+        host="0.0.0.0",
+        port=port,
+        reload=False
+    )
