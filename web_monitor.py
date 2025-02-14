@@ -146,5 +146,3 @@ def save_scraped_data(url, content):
 
     except psycopg2.Error as db_err:
         logging.error(f"❌ Database insert failed for {url}: {db_err}", exc_info=True)
-
-
