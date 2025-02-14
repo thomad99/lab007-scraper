@@ -272,7 +272,7 @@ if __name__ == "__main__":
     import uvicorn
     print(f"Starting server on port {port}")
     uvicorn.run(
-        "import_logging:app",  # use string reference to app
+        "web_monitor:app",  # use string reference to app
         host="0.0.0.0",
         port=port,
         reload=False
