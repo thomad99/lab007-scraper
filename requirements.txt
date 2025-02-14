@@ -6,3 +6,4 @@ psycopg2
 aiosmtplib
 psycopg2-binary
 python-multipart
+aiohttp
