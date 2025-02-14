@@ -66,7 +66,7 @@ async def get_websites_from_db():
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
-        cur.execute("SELECT url, email, phone FROM websites;")
+        cur.execute("SELECT url, email, phone FROM wix_submissions;")
         records = cur.fetchall()
         cur.close()
         conn.close()
