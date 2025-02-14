@@ -7,4 +7,22 @@ services:
     envVars:
       - key: PORT
         value: 10000
-    healthCheckPath: /health
+      - key: DB_NAME
+        value: sail_exks
+      - key: DB_USER
+        value: sail1
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_HOST
+        value: dpg-culanb8gph6c73d9jl50-a
+      - key: DB_PORT
+        value: 5432
+      - key: EMAIL_SENDER
+        value: dave@LoveSailing.ai
+      - key: EMAIL_PASSWORD
+        sync: false
+      - key: SMTP_SERVER
+        value: smtp.ionos.com
+      - key: SMTP_PORT
+        value: 587
+    healthCheckPath: /health 
